@@ -53,6 +53,8 @@ byte sdDetected[8] = { B00000, B00000, B00000, B11000, B10110, B10010, B10010, B
 byte sdNotDetected[8] = { B00101, B00010, B00101, B11000, B10110, B10010, B10010, B11110 };
 
 
+int count=0;
+
 // void intitialize()
 // {
 // TempReadinterval=1500;
@@ -90,6 +92,7 @@ void connectWifi()
     WiFi.begin(ssid, password);
     wifiConnectPrevTime=currentTime;
   }
+  
     sd_status=SD.begin(PIN_SPI_CS);
     if(sd_status)
     {
@@ -108,9 +111,9 @@ void clearScr()
    if(moisValue1_Percent<10)
     {   
           for(int j=11;j<=12;j++)
-          {
-            lcd.setCursor(j,0);
-            lcd.print(" ");
+          { 
+             lcd.setCursor(j,0);
+             lcd.print(" ");
           }
            digitalWrite(pump1,HIGH);  //ACTIVATE PUMP 1
     }
@@ -320,25 +323,25 @@ void lcdDisplay()
   lcd.print("%");
   MoistureDisplayPrevTime=currentTime;
   }
-   if(WiFi.status()==WL_CONNECTED)
-  {
-  lcd.setCursor(15,0);
-  lcd.write(1);
-  }
+  if(WiFi.status()==WL_CONNECTED)
+    {
+    lcd.setCursor(15,0);
+    lcd.write(1);
+    }
   else
-  {
-  lcd.setCursor(15,0);
-  lcd.write(1);
-  }
+    {
+    lcd.setCursor(15,0);
+    lcd.write(1);
+    }
 
   if(sd_status)
   {
-    lcd.setCursor(15,1);
+    lcd.setCursor(15,1);   //DISPLAY THE SD CONNECTED ICON
     lcd.write(6);
   }
   else {
     lcd.setCursor(15,1);
-    lcd.write(6);
+    lcd.write(6);          //DISPLAY THE SD NOT CONNECTED ICON
   }
 }
 
@@ -354,9 +357,12 @@ void setup() {
   digitalWrite(pump2,LOW);
    //______________________________________________________________________________[-]
 
+
+
   //_______________________________________DHT11__________________________________[+]
   tempSensor.begin();
   //______________________________________________________________________________[-]
+
 
   // intitialize();
   analogSetAttenuation(ADC_11db);
@@ -374,16 +380,15 @@ void setup() {
   lcd.print("Irrig. Sys. v1.0");
   delay(3000);
   lcd.clear();
-
-
-
   //________________________________________________________________________________[-]
+
 
 
   //________________________________________LCD CUSTOM CHARACTERS___________________[+]
   lcd.createChar(0,degreeSymbol);
   //_________________________________________________________________________________[-]
   connectWifi();
+
 
   //________________________________________SD CARD___________________[+]
   
@@ -393,6 +398,17 @@ void loop() {
 
 currentTime=millis();
 connectWifi();
+                            if(count<1 && WiFi.status()==WL_CONNECTED)
+                            {
+                              count++;
+                              lcd.clear();
+                              lcd.setCursor(3,0);
+                              lcd.print("Web Server:");
+                              lcd.setCursor(3,1);
+                              lcd.print(WiFi.localIP());
+                              delay(3000);
+                              lcd.clear();
+                            }
 readSensorData();
 // displayTempValues();
 creatCharacters();
