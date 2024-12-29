@@ -3,10 +3,6 @@
 #include <LiquidCrystal_I2C.h>
 #include <SD.h>
 
-
-const char* ssid       = "Word.exe";
-const char* password   = "Cat@12345";
-
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5 FOR SD CARD MODULE
 #define tempSensorPin 15
 #define mSensor1 32 
@@ -16,15 +12,26 @@ const char* password   = "Cat@12345";
 #define dry 2680
 #define wet 960
 
-File myFile; //FILE HANDLER FOR SD CARD
+
+
+const char* ssid       = "Word.exe";
+const char* password   = "Cat@12345";
 
 const int lcdColumns = 16;
 const int lcdRows = 2;
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows); 
 
+
+//Object Declaration
+
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows); 
 
 DHT tempSensor(tempSensorPin,DHT11);
 
+File myFile;                                     //FILE HANDLER FOR SD CARD
+
+
+
+//Variables used in Code
 
 float tempInC,tempInF,humidity;
 int moisValue1,moisValue2;
@@ -37,7 +44,13 @@ unsigned long MoistureDisplayInterval=1000,MoistureDisplayPrevTime=0;
 unsigned long wifiConnectInterval=1000,wifiConnectPrevTime=0;
 bool sd_status=false;
 
+int count=0;                                    //To Display IP Adress only once
 
+
+
+
+
+//Byte Symbol Representation declarations
 
 byte degreeSymbol[8]= { B00000, B00111, B00101, B00111, B00000, B00000, B00000, B00000 };
 byte noWifiSymbol[8] = { B10001, B01010, B00100, B01010, B10001, B00100, B00100, B00100 };
@@ -53,7 +66,6 @@ byte sdDetected[8] = { B00000, B00000, B00000, B11000, B10110, B10010, B10010, B
 byte sdNotDetected[8] = { B00101, B00010, B00101, B11000, B10110, B10010, B10010, B11110 };
 
 
-int count=0;
 
 // void intitialize()
 // {
@@ -394,8 +406,8 @@ void setup() {
   
 }
 
-void loop() {
-
+void loop() 
+{
 currentTime=millis();
 connectWifi();
                             if(count<1 && WiFi.status()==WL_CONNECTED)
@@ -410,8 +422,9 @@ connectWifi();
                               lcd.clear();
                             }
 readSensorData();
-// displayTempValues();
 creatCharacters();
 lcdDisplay();
+
+// displayTempValues();
 }
 
