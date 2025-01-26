@@ -129,25 +129,19 @@ void send_sensor()
     if (isnan(tempInC) || isnan(humidity) ) {
     Serial.println(F("Failed to read from DHT sensor!"));
     return;
-  }
-  // JSON_Data = {"temp":tempInC,"hum":humidity,"moisOne":moisValue1_Percent,"moisTwo":moisValue2_Percent,"pump1":pumpOneState,,"pump2":pumpTwoState,"autoSwitch":autoMode}
-  String JSON_Data = "{\"temp\":";
-         JSON_Data += tempInC;
-         JSON_Data += ",\"hum\":";
-         JSON_Data += humidity;
-         JSON_Data += ",\"moisOne\":";
-         JSON_Data += moisValue1_Percent;
-         JSON_Data += ",\"moisTwo\":";
-         JSON_Data += moisValue2_Percent;
-         JSON_Data += ",\"pump1\":";
-         JSON_Data += pumpOneState;
-         JSON_Data += ",\"pump2\":";
-         JSON_Data += pumpTwoState;
-         JSON_Data += ",\"autoSwitch\":";
-         JSON_Data += autoMode;
-         JSON_Data += "}";
-  // Serial.println(JSON_Data);     
-  websockets.broadcastTXT(JSON_Data);
+  }   
+DynamicJsonDocument doc(256);
+doc["temp"] = tempInC;
+doc["hum"] = humidity;
+doc["moisOne"] = moisValue1_Percent;
+doc["moisTwo"] = moisValue2_Percent;
+doc["pump1"] = pumpOneState;
+doc["pump2"] = pumpTwoState;
+doc["autoSwitch"] = autoMode;
+
+String jsonOutput;
+serializeJson(doc, jsonOutput);
+websockets.broadcastTXT(jsonOutput);
 }
 
 
