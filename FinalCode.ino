@@ -2,6 +2,10 @@
 #include <WiFi.h>
 #include <LiquidCrystal_I2C.h>
 #include <SD.h>
+#include <ESPAsyncWebServer.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
+
 
 #define PIN_SPI_CS 5 // The ESP32 pin GPIO5 FOR SD CARD MODULE
 #define tempSensorPin 15
@@ -12,39 +16,43 @@
 #define dry 2680
 #define wet 960
 
-
+AsyncWebServer server(80);
+WebSocketsServer websockets(81);
 
 const char* ssid       = "Word.exe";
 const char* password   = "Cat@12345";
 
-const int lcdColumns = 16;
-const int lcdRows = 2;
-
 
 //Object Declaration
 
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows); 
+LiquidCrystal_I2C lcd(0x27,16,2); 
 
 DHT tempSensor(tempSensorPin,DHT11);
 
-File myFile;                                     //FILE HANDLER FOR SD CARD
+                                   //FILE HANDLER FOR SD CARD
 
 
 
 //Variables used in Code
+uint8_t serverStatus=0;
 
 float tempInC,tempInF,humidity;
 int moisValue1,moisValue2;
 int moisValue1_Percent,moisValue2_Percent;
+uint8_t pumpOneState=0,pumpTwoState=0,autoMode=0;
+
+
+
 unsigned long TempReadinterval=1500,TempPrevTime=0,currentTime;
 unsigned long HumidityReadinterval=2500,HumidityPrevTime=0;
 unsigned long TempDisplayInterval=3000,TempDisplayPrevTime=0;
 unsigned long MoistureReadinterval=100,MoisturePrevTime=0;
 unsigned long MoistureDisplayInterval=1000,MoistureDisplayPrevTime=0;
 unsigned long wifiConnectInterval=1000,wifiConnectPrevTime=0;
+unsigned long sendDataInterval=100,sendDataPrevTime=0;
 bool sd_status=false;
 
-int count=0;                                    //To Display IP Adress only once
+uint8_t count=0;                                    //To Display IP Adress only once
 
 
 
@@ -65,36 +73,85 @@ byte moistureTankError[8]={ B00000, B00000, B01010, B00100, B00100, B01010, B000
 byte sdDetected[8] = { B00000, B00000, B00000, B11000, B10110, B10010, B10010, B11110 };
 byte sdNotDetected[8] = { B00101, B00010, B00101, B11000, B10110, B10010, B10010, B11110 };
 
+void notFound(AsyncWebServerRequest * request)
+{
+  request->send(404,"text/plain","Tu abhi bhi gaya nhi chutiye !!!");
+}
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) 
+{
+  switch (type) 
+  {
+    case WStype_DISCONNECTED:
+      Serial.printf("[%u] Disconnected!\n", num);
+      break;
+    case WStype_CONNECTED: {
+        IPAddress ip = websockets.remoteIP(num);
+        Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+
+        // send message to client
+        websockets.sendTXT(num, "Connected from server");
+      }
+      break;
+    case WStype_TEXT: {
+        Serial.printf("[%u] get Text: %s\n", num, payload);
+        String message = String((char *)(payload));
+
+        // Check if the payload is "ping"
+        if (message == "ping") {
+          Serial.println("Responded Pong");
+          websockets.sendTXT(num, "pong");
+          return; // No further processing needed for plain text
+        }
+
+        // If not "ping", try parsing it as JSON
+        DynamicJsonDocument doc(200);
+        DeserializationError error = deserializeJson(doc, message);
+        if (error) {
+          Serial.print("Deserialize Json() failed: ");
+          Serial.println(error.c_str());
+          return;
+        }
+
+        // Parse JSON values
+        autoMode = doc["autoSwitch"];
+        if (autoMode == 0) {
+          pumpOneState = doc["pump1"];
+          pumpTwoState = doc["pump2"];
+        }
+        activatePump();
+      }
+      break;
+    }
+}
+
+void send_sensor()
+{ 
+    if (isnan(tempInC) || isnan(humidity) ) {
+    Serial.println(F("Failed to read from DHT sensor!"));
+    return;
+  }
+  // JSON_Data = {"temp":tempInC,"hum":humidity,"moisOne":moisValue1_Percent,"moisTwo":moisValue2_Percent,"pump1":pumpOneState,,"pump2":pumpTwoState,"autoSwitch":autoMode}
+  String JSON_Data = "{\"temp\":";
+         JSON_Data += tempInC;
+         JSON_Data += ",\"hum\":";
+         JSON_Data += humidity;
+         JSON_Data += ",\"moisOne\":";
+         JSON_Data += moisValue1_Percent;
+         JSON_Data += ",\"moisTwo\":";
+         JSON_Data += moisValue2_Percent;
+         JSON_Data += ",\"pump1\":";
+         JSON_Data += pumpOneState;
+         JSON_Data += ",\"pump2\":";
+         JSON_Data += pumpTwoState;
+         JSON_Data += ",\"autoSwitch\":";
+         JSON_Data += autoMode;
+         JSON_Data += "}";
+  // Serial.println(JSON_Data);     
+  websockets.broadcastTXT(JSON_Data);
+}
 
 
-// void intitialize()
-// {
-// TempReadinterval=1500;
-// TempPrevTime=0;
 
-// HumidityReadinterval=2500;
-// HumidityPrevTime=0;
-
-// MoistureReadinterval=100;
-// MoisturePrevTime=0;
-
-// wifiConnectInterval=1000;
-// wifiConnectPrevTime=0;
-
-// TempDisplayInterval=3000;
-// TempDisplayPrevTime=0;
-
-// MoistureDisplayInterval=1000;
-// MoistureDisplayPrevTime=0;
-
-// tempInC=0.0;
-// tempInF=0.0;
-// humidity=0.0;
-// moisValue1=0;
-// moisValue2=0;
-// moisValue1_Percent=0;
-// moisValue2_Percent=0;
-// }
 void connectWifi()
 {
   if((unsigned long)(currentTime-wifiConnectPrevTime)>=wifiConnectInterval){                                                  
@@ -108,18 +165,33 @@ void connectWifi()
     sd_status=SD.begin(PIN_SPI_CS);
     if(sd_status)
     {
-      if(!SD.exists("/testStatus.txt"))
+      if(!SD.exists("/index.html"))
       {
-      // Serial.println("File not exists");
       sd_status=false;
       }
     }
 }
 }
 
+void activatePump()
+{
+  if(autoMode==1)
+  {
+    if(moisValue1_Percent<10)
+        pumpOneState=1;
+    else
+      pumpOneState=0;
+    if(moisValue2_Percent<10)
+      pumpTwoState=1;
+    else
+      pumpTwoState=0;
+  }
+  digitalWrite(pump1,pumpOneState);
+  digitalWrite(pump2,pumpTwoState);
+}
+
 void clearScr()
 {
-
    if(moisValue1_Percent<10)
     {   
           for(int j=11;j<=12;j++)
@@ -127,7 +199,6 @@ void clearScr()
              lcd.setCursor(j,0);
              lcd.print(" ");
           }
-           digitalWrite(pump1,HIGH);  //ACTIVATE PUMP 1
     }
     else if(moisValue1_Percent>10 && moisValue1_Percent<100)
     {   
@@ -136,7 +207,6 @@ void clearScr()
             lcd.setCursor(j,0);
             lcd.print(" ");
           }
-          digitalWrite(pump1,LOW);  //DE-ACTIVATE PUMP 1
     }
    if(moisValue2_Percent<10)
     {   
@@ -145,7 +215,6 @@ void clearScr()
             lcd.setCursor(j,1);
             lcd.print(" ");
           }
-          digitalWrite(pump2,HIGH);   //ACTIVATE PUMP 2
     }
     else if(moisValue2_Percent>10 && moisValue2_Percent<100)
     {   
@@ -154,7 +223,6 @@ void clearScr()
             lcd.setCursor(j,1);
             lcd.print(" ");
           }
-          digitalWrite(pump2,LOW);  //DE-ACTIVATE PUMP 2
     }
 }
 void creatCharacters()
@@ -236,7 +304,6 @@ void creatCharacters()
   {
     lcd.createChar(6,sdNotDetected);
   }
-  
 }
 
 void readSensorData()
@@ -262,40 +329,11 @@ void readSensorData()
       moisValue2 = analogRead(mSensor2);
       moisValue2_Percent=map(moisValue2,wet,dry, 100, 0);
       MoisturePrevTime=currentTime;
+      activatePump();
     }
 }
 
-// void displayTempValues()
-// {
-//   if((unsigned long)(currentTime-TempDisplayPrevTime)>=TempDisplayInterval)
-//   {
-//   Serial.println(".........................");
-//   Serial.print("deg-C :");
-//   Serial.println(tempInC);
-//   Serial.print("deg-F :");
-//   Serial.println(tempInF);
-//   Serial.print("Humidity :");
-//   Serial.print(humidity);
-//   Serial.println("%");
 
-//   Serial.print("Moisture 1 Raw :");
-//   Serial.print(moisValue1);
-//   Serial.print(",");
-//   Serial.print(moisValue1_Percent);
-//   Serial.println("%");
-
-
-//   Serial.print("Moisture 2 Raw :");
-//   Serial.print(moisValue2);
-//   Serial.print(",");
-//   Serial.print(moisValue2_Percent);
-//   Serial.println("%");
- 
-
-
-//   TempDisplayPrevTime=currentTime;
-//   }
-// }
 
 void lcdDisplay()
 {
@@ -357,7 +395,39 @@ void lcdDisplay()
   }
 }
 
+void startServer()
+{
+   if(WiFi.status()==WL_CONNECTED && SD.exists("/index.html")==true && serverStatus==0)
+  { 
 
+    Serial.println("Server Started");
+                  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SD, "/index.html", "text/html");
+  });
+  //testing start
+//   server.on("/get-sensor-data", HTTP_GET, [](AsyncWebServerRequest *request){
+    
+//      String JSON_Data = "{\"temp\":";
+//          JSON_Data += tempInC;
+//          JSON_Data += ",\"hum\":";
+//          JSON_Data += humidity;
+//          JSON_Data += ",\"moisOne\":";
+//          JSON_Data += moisValue1_Percent;
+//          JSON_Data += ",\"moisTwo\":";
+//          JSON_Data += moisValue2_Percent;
+//          JSON_Data += "}";
+//     request->send(200, "application/json", JSON_Data);
+// });
+
+  //testing end
+                    server.serveStatic("/", SD, "/");
+                    server.onNotFound(notFound);
+                    server.begin();
+                    websockets.begin();
+                    websockets.onEvent(webSocketEvent);
+                    serverStatus=1;
+  }  
+}
 
 void setup() {
 
@@ -403,13 +473,18 @@ void setup() {
 
 
   //________________________________________SD CARD___________________[+]
-  
+
+ 
 }
 
 void loop() 
 {
 currentTime=millis();
+if(WiFi.status()!=WL_CONNECTED)
+{
+  serverStatus=0;
 connectWifi();
+}
                             if(count<1 && WiFi.status()==WL_CONNECTED)
                             {
                               count++;
@@ -424,6 +499,17 @@ connectWifi();
 readSensorData();
 creatCharacters();
 lcdDisplay();
+if(!serverStatus)
+startServer();
+
+
+if((unsigned long)(currentTime-sendDataPrevTime)>=sendDataInterval){
+  if(serverStatus)
+  send_sensor();
+  sendDataPrevTime=currentTime;
+}
+websockets.loop();
+
 
 // displayTempValues();
 }
