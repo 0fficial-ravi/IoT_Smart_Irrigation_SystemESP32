@@ -50,6 +50,7 @@ unsigned long MoistureReadinterval=100,MoisturePrevTime=0;
 unsigned long MoistureDisplayInterval=1000,MoistureDisplayPrevTime=0;
 unsigned long wifiConnectInterval=1000,wifiConnectPrevTime=0;
 unsigned long sendDataInterval=100,sendDataPrevTime=0;
+unsigned long lcdUpdatePrevTime = 0;
 bool sd_status=false;
 
 uint8_t count=0;                                    //To Display IP Adress only once
@@ -63,6 +64,8 @@ uint8_t count=0;                                    //To Display IP Adress only 
 byte degreeSymbol[8]= { B00000, B00111, B00101, B00111, B00000, B00000, B00000, B00000 };
 byte noWifiSymbol[8] = { B10001, B01010, B00100, B01010, B10001, B00100, B00100, B00100 };
 byte wifiConnectedSymbol[8] = { B00000, B00000, B00001, B00001, B00101, B00101, B10101, B10101 };
+byte wifiSignalOne[8]={ B00000,B00000,B00000,B00000,B00000,B00000,B10000,B10000};
+byte wifiSignalTwo[8]={  B00000,B00000,B00000,B00000,B00100,B00100,B10100,B10100};
 byte moistureTankZero[8]= { B00100, B01010, B10001, B10001, B10001, B10001, B01110, B00000 };
 byte moistureTank20[8]={ B00100, B01010, B10001, B10001, B10001, B11111, B01110, B00000 };
 byte moistureTank40[8]={ B00100, B01010, B10001, B10001, B11111, B11111, B01110, B00000 };
@@ -73,6 +76,21 @@ byte moistureTankError[8]={ B00000, B00000, B01010, B00100, B00100, B01010, B000
 byte sdDetected[8] = { B00000, B00000, B00000, B11000, B10110, B10010, B10010, B11110 };
 byte sdNotDetected[8] = { B00101, B00010, B00101, B11000, B10110, B10010, B10010, B11110 };
 
+
+
+
+int getWifiStrength() {
+  int rssi = WiFi.RSSI();
+  
+  if (rssi >= -60) {         // Strong signal
+    return 3;
+  } else if (rssi >= -70) {  // Medium signal
+    return 2;
+  } else {                   // Weak signal
+    return 1;
+  }
+}
+
 void notFound(AsyncWebServerRequest * request)
 {
   request->send(404,"text/plain","Tu abhi bhi gaya nhi chutiye !!!");
@@ -82,7 +100,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   switch (type) 
   {
     case WStype_DISCONNECTED:
-      Serial.printf("[%u] Disconnected!\n", num);
+        Serial.printf("[%u] Disconnected! Heap: %d\n", num, ESP.getFreeHeap());
       break;
     case WStype_CONNECTED: {
         IPAddress ip = websockets.remoteIP(num);
@@ -156,13 +174,15 @@ void connectWifi()
     wifiConnectPrevTime=currentTime;
   }
   
-    sd_status=SD.begin(PIN_SPI_CS);
+    sd_status=(SD.begin(PIN_SPI_CS,SPI,4000000U,"/sd",10U,false)) ;
     if(sd_status)
     {
       if(!SD.exists("/index.html"))
       {
       sd_status=false;
       }
+      else
+      sd_status=true;
     }
 }
 }
@@ -287,9 +307,16 @@ void creatCharacters()
   }
   else if(WiFi.status()==WL_CONNECTED)
   {
-    lcd.createChar(1,wifiConnectedSymbol);
+    switch(getWifiStrength())
+    {
+      case 1: lcd.createChar(1,wifiSignalOne);
+              break;
+      case 2: lcd.createChar(1,wifiSignalTwo);
+              break;
+      case 3: lcd.createChar(1,wifiConnectedSymbol);
+              break;
+    }
   }
-
   if(sd_status)
   {
     lcd.createChar(6,sdDetected);
@@ -398,23 +425,8 @@ void startServer()
                   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SD, "/index.html", "text/html");
   });
-  //testing start
-//   server.on("/get-sensor-data", HTTP_GET, [](AsyncWebServerRequest *request){
-    
-//      String JSON_Data = "{\"temp\":";
-//          JSON_Data += tempInC;
-//          JSON_Data += ",\"hum\":";
-//          JSON_Data += humidity;
-//          JSON_Data += ",\"moisOne\":";
-//          JSON_Data += moisValue1_Percent;
-//          JSON_Data += ",\"moisTwo\":";
-//          JSON_Data += moisValue2_Percent;
-//          JSON_Data += "}";
-//     request->send(200, "application/json", JSON_Data);
-// });
 
-  //testing end
-                    server.serveStatic("/", SD, "/");
+                    server.serveStatic("/", SD, "/").setDefaultFile("index.html");
                     server.onNotFound(notFound);
                     server.begin();
                     websockets.begin();
@@ -476,7 +488,7 @@ void loop()
 currentTime=millis();
 if(WiFi.status()!=WL_CONNECTED)
 {
-  serverStatus=0;
+serverStatus=0;
 connectWifi();
 }
                             if(count<1 && WiFi.status()==WL_CONNECTED)
@@ -485,26 +497,27 @@ connectWifi();
                               lcd.clear();
                               lcd.setCursor(3,0);
                               lcd.print("Web Server:");
-                              lcd.setCursor(3,1);
+                              lcd.setCursor(0,1);
                               lcd.print(WiFi.localIP());
                               delay(3000);
                               lcd.clear();
                             }
+// creatCharacters();
+// lcdDisplay();
+
+  if (currentTime - lcdUpdatePrevTime >= 1000) { // Update every 1 second
+    lcdUpdatePrevTime = currentTime;
+    creatCharacters();
+    lcdDisplay();
+  }
 readSensorData();
-creatCharacters();
-lcdDisplay();
-if(!serverStatus)
 startServer();
-
-
 if((unsigned long)(currentTime-sendDataPrevTime)>=sendDataInterval){
   if(serverStatus)
   send_sensor();
   sendDataPrevTime=currentTime;
 }
 websockets.loop();
-
-
 // displayTempValues();
 }
 
