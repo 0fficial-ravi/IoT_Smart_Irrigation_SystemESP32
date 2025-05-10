@@ -93,7 +93,7 @@ int getWifiStrength() {
 
 void notFound(AsyncWebServerRequest * request)
 {
-  request->send(404,"text/plain","Tu abhi bhi gaya nhi chutiye !!!");
+  request->send(404,"text/plain","Sorry the Page you are looking is Not Found :(");
 }
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) 
 {
